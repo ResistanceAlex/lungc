@@ -11,9 +11,9 @@ import sys
 
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
-from model.LungNoduleClassifier import LungNoduleClassifier
+from code.model.backbone.LungNoduleClassifier import LungNoduleClassifier
 
-from model.LungNoduleClassifier_b import LungNoduleClassifierResNet50
+from code.model.backbone.LungNoduleClassifier_b import LungNoduleClassifierResNet50
 
 def read_labels(label_path):
     labels = []

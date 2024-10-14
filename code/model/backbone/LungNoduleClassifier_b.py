@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torchvision.models as models
 
 import os
@@ -7,10 +8,10 @@ import sys
 
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
-from torch.nn import functional as F
+from attention.CoordAttn_simam import Simam
+from attention.MocAttn import MoCAttention
+from conv.WTConv2d import WTConv2d
 
-from model.modelBlock import Simam
-from model.MocAttn import MoCAttention
 
 # ResNet-50/101/152 残差结构 ResNetblock
 class ResNetblock(nn.Module):
@@ -29,6 +30,7 @@ class ResNetblock(nn.Module):
             nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1),
             nn.BatchNorm2d(out_channels),
             nn.ReLU(),
+            WTConv2d(out_channels, out_channels, kernel_size=3, stride=1),  # 在3x3 Conv2d之后添加小波卷积
             nn.Conv2d(out_channels, out_channels * 4, kernel_size=1, stride=1),
             nn.BatchNorm2d(out_channels * 4)
         )
@@ -58,6 +60,7 @@ class LungNoduleClassifierResNet50(nn.Module):
             nn.Conv2d(3, 64, kernel_size=7, stride=2),
             nn.BatchNorm2d(64),
             nn.ReLU(),
+            WTConv2d(64, 64, kernel_size=7, stride=1),  # 在Conv2d之后添加小波卷积
             nn.MaxPool2d((3, 3), stride=2)
         )
         self.in_channels = 64
@@ -114,8 +117,6 @@ if __name__ == "__main__":
 
     model = LungNoduleClassifierResNet50().cuda()  # 将模型移动到CUDA
     dummy_img = torch.randn(1, 3, 224, 224).cuda()  # 假设输入尺寸
-    # dummy_bbox = torch.randn(1, 4).cuda()  # 假设边界框
-    # output = model(dummy_img, dummy_bbox)  # 测试模型
     
     output = model(dummy_img)  # 测试模型
     print(f"Output shape: {output.shape}")

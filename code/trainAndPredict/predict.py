@@ -8,8 +8,8 @@ from torchvision import transforms
 import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.metrics import confusion_matrix, roc_curve, auc, precision_recall_curve
-from model.LungNoduleClassifier import LungNoduleClassifier
-from model.LungNoduleClassifier_b import LungNoduleClassifierResNet50
+from code.model.backbone.LungNoduleClassifier import LungNoduleClassifier
+from code.model.backbone.LungNoduleClassifier_b import LungNoduleClassifierResNet50
 from dataUtil.LungNoduleDataset import LungNoduleDataset
 from torch.utils.data import DataLoader
 

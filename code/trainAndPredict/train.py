@@ -18,14 +18,28 @@ from sklearn.metrics import (accuracy_score, recall_score, precision_score,
                              confusion_matrix, roc_curve, auc, precision_recall_curve, f1_score)
 from sklearn.preprocessing import label_binarize
 
-from model.LungNoduleClassifier import LungNoduleClassifier
-from model.LungNoduleClassifier_b import LungNoduleClassifierResNet50
-from model.ViT import Vit
-from model.ViTB import VisionTransformer
+from model.backbone.LungNoduleClassifier import LungNoduleClassifier
+from model.backbone.LungNoduleClassifier_b import LungNoduleClassifierResNet50
+from model.backbone.ViT import Vit
+from model.backbone.ViTB import VisionTransformer
 from dataUtil.LungNoduleDataset import LungNoduleDataset
 
 from dataUtil.loss import FocalLoss
 from dataUtil.loss import LabelSmoothingCrossEntropy
+
+import random
+import numpy as np
+import torch
+
+seed_value = random.randint(1, 10000)  # 不固定种子
+random.seed(seed_value)
+np.random.seed(seed_value)
+torch.manual_seed(seed_value)
+torch.cuda.manual_seed(seed_value)
+torch.backends.cudnn.deterministic = False
+torch.backends.cudnn.benchmark = True
+
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # 数据增强和转换
 transform = transforms.Compose([
@@ -45,10 +59,10 @@ val_label_folder = 'dataset/labels/val'
 train_dataset = LungNoduleDataset(image_folder, label_folder, transform=transform)
 val_dataset = LungNoduleDataset(val_image_folder, val_label_folder, transform=transform)
 train_loader = DataLoader(train_dataset, batch_size=16, shuffle=True)
-val_loader = DataLoader(val_dataset, batch_size=16, shuffle=False)
+val_loader = DataLoader(val_dataset, batch_size=16, shuffle=True)
 
 # 设定训练参数
-num_epochs = 400
+num_epochs = 4000
 best_train_acc = 0.7
 best_val_acc = 0.3
 
@@ -84,7 +98,7 @@ with open(csv_file, mode='w', newline='') as file:
     writer.writerow(["Epoch", "Loss", "Train Accuracy", "Val Accuracy", "Val Precision", "Val Recall", 
                      "Val F1"])
 
-# 初始化模型、损失函数和优化器
+# 计算权重
 class_counts = {
     1: 463,
     2: 820,
@@ -92,16 +106,14 @@ class_counts = {
     4: 477,
     5: 362
 }
-
 total_count = sum(class_counts.values())
-
-# 计算权重
 weights = {k: total_count / (len(class_counts) * v) for k, v in class_counts.items()}
-
 # 将权重转换为Tensor
 alpha = torch.tensor([weights[1], weights[2], weights[3], weights[4], weights[5]], dtype=torch.float32)
+alpha = alpha.to(device)
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+# 初始化模型、损失函数和优化器
 
 # IMG_SIZE = 224
 # IN_CHANNELS = 3
@@ -129,8 +141,8 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model = LungNoduleClassifierResNet50().to(device)
 
 # criterion = FocalLoss(alpha=alpha, gamma=2.0)
-# criterion = nn.CrossEntropyLoss(weight=alpha)
-criterion = LabelSmoothingCrossEntropy(smoothing=0.1)
+criterion = nn.CrossEntropyLoss()
+# criterion = LabelSmoothingCrossEntropy(smoothing=0.001)
 
 optimizer = optim.AdamW(model.parameters(), lr=0.001)
  
@@ -215,6 +227,9 @@ for epoch in range(num_epochs):
         best_val_acc = val_accuracy
         torch.save(model.state_dict(), best_val_model_path)
         print("Best validation model saved.")
+    
+    scheduler.step()
+    optimizer.step()
 
 # 绘制ROC曲线
 for i in range(5):  # 假设有5个类别
@@ -223,46 +238,48 @@ for i in range(5):  # 假设有5个类别
     roc_auc = auc(fpr, tpr)
     plt.plot(fpr, tpr, label=f'Class {i} (AUC = {roc_auc:.2f})')
 
-# 添加图例和标签
-plt.plot([0, 1], [0, 1], 'k--')  # 对角线
-plt.xlim([0.0, 1.0])
-plt.ylim([0.0, 1.05])
-plt.xlabel('False Positive Rate')
-plt.ylabel('True Positive Rate')
-plt.title('Receiver Operating Characteristic')
-plt.legend(loc='lower right')
-plt.savefig(os.path.join(result_dir, 'result_pic/roc_curve_final.png'), dpi=300)
-plt.close()
+def printPic():
+    # 添加图例和标签
+    plt.plot([0, 1], [0, 1], 'k--')  # 对角线
+    plt.xlim([0.0, 1.0])
+    plt.ylim([0.0, 1.05])
+    plt.xlabel('False Positive Rate')
+    plt.ylabel('True Positive Rate')
+    plt.title('Receiver Operating Characteristic')
+    plt.legend(loc='lower right')
+    plt.savefig(os.path.join(result_dir, 'result_pic/roc_curve_final.png'), dpi=300)
+    plt.close()
 
-# 绘制精确率-召回率曲线
-plt.figure(figsize=(10, 5))
-for i in range(5):
-    y_true = (np.array(all_val_labels) == i).astype(int)
-    precision, recall, _ = precision_recall_curve(y_true, all_val_scores[:, i])
-    plt.plot(recall, precision, label=f'Class {i}')
+    # 绘制精确率-召回率曲线
+    plt.figure(figsize=(10, 5))
+    for i in range(5):
+        y_true = (np.array(all_val_labels) == i).astype(int)
+        precision, recall, _ = precision_recall_curve(y_true, all_val_scores[:, i])
+        plt.plot(recall, precision, label=f'Class {i}')
 
-# 添加图例和标签
-plt.xlabel('Recall')
-plt.ylabel('Precision')
-plt.title('Precision-Recall Curve')
-plt.legend(loc='best')
-plt.savefig(os.path.join(result_dir, 'result_pic/precision_recall_curve_final.png'), dpi=300)
-plt.close()
+    # 添加图例和标签
+    plt.xlabel('Recall')
+    plt.ylabel('Precision')
+    plt.title('Precision-Recall Curve')
+    plt.legend(loc='best')
+    plt.savefig(os.path.join(result_dir, 'result_pic/precision_recall_curve_final.png'), dpi=300)
+    plt.close()
 
-# 类别混淆矩阵图
-conf_matrix = confusion_matrix(all_val_labels, all_val_preds)
-plt.figure()
-plt.matshow(conf_matrix, cmap='Blues')
-plt.title('Confusion Matrix')
-plt.colorbar()
-plt.ylabel('True label')
-plt.xlabel('Predicted label')
-# 在每个格子中添加计数
-for (i, j), val in np.ndenumerate(conf_matrix):
-    plt.text(j, i, val, ha='center', va='center', color='white')
-plt.savefig(os.path.join(result_dir, f'result_pic/confusion_matrix_epoch_{num_epochs}.png'), dpi=300)
-plt.close()
+    # 类别混淆矩阵图
+    conf_matrix = confusion_matrix(all_val_labels, all_val_preds)
+    plt.figure()
+    plt.matshow(conf_matrix, cmap='Blues')
+    plt.title('Confusion Matrix')
+    plt.colorbar()
+    plt.ylabel('True label')
+    plt.xlabel('Predicted label')
+    # 在每个格子中添加计数
+    for (i, j), val in np.ndenumerate(conf_matrix):
+        plt.text(j, i, val, ha='center', va='center', color='white')
+    plt.savefig(os.path.join(result_dir, f'result_pic/confusion_matrix_epoch_{num_epochs}.png'), dpi=300)
+    plt.close()
 
+printPic()
 # 保存最终模型
 torch.save(model.state_dict(), final_lung_nodule_classifier_path)
 print("Final model saved.")

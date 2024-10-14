@@ -9,9 +9,9 @@ sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 from torch.nn import functional as F
 
-from model.modelBlock import CoordAtt
-from model.modelBlock import Simam
-from model.MocAttn import MoCAttention
+from attention.CoordAttn_simam import CoordAtt
+from attention.CoordAttn_simam import Simam
+from attention.MocAttn import MoCAttention
 
 
 # 残差块
