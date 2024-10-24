@@ -37,9 +37,9 @@ def plot_accuracy_curve(data, result_dir):
     plt.savefig(os.path.join(result_dir, 'result_pic/accuracy_curve.png'), dpi=300)
     plt.close()
 
-if __name__ == "__main__":
+def draw_pic(result_id):
     # 定义结果文件夹和CSV文件路径
-    result_dir = 'result/result'  # 结果文件夹路径
+    result_dir = result_id  # 结果文件夹路径
     csv_file = os.path.join(result_dir, 'result.csv')
 
     # 读取 CSV 文件
@@ -52,3 +52,6 @@ if __name__ == "__main__":
     
     print("result saved.")
 
+if __name__ == "__main__":
+    result_id = 'result/result_1'
+    draw_pic(result_id)

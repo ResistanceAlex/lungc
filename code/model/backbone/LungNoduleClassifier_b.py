@@ -11,6 +11,7 @@ sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from attention.CoordAttn_simam import Simam
 from attention.MocAttn import MoCAttention
 from conv.WTConv2d import WTConv2d
+from attention.CGAFusion import CGAFusion
 
 
 # ResNet-50/101/152 残差结构 ResNetblock
@@ -50,9 +51,8 @@ class ResNetblock(nn.Module):
         out = self.simam(out)
         return F.relu(out)
 
-
 class LungNoduleClassifierResNet50(nn.Module):
-    def __init__(self, block=ResNetblock, num_classes=5, dropout=0.001):
+    def __init__(self, block=ResNetblock, num_classes=5, dropout=0.1):
         super(LungNoduleClassifierResNet50, self).__init__()
 
         self.conv1 = nn.Sequential(
@@ -74,6 +74,10 @@ class LungNoduleClassifierResNet50(nn.Module):
         self.attention2 = MoCAttention(28)
         self.attention3 = MoCAttention(14)
         self.attention4 = MoCAttention(7)
+        
+        self.cagf1 = CGAFusion(256)
+        self.cagf2 = CGAFusion(512)
+        self.cagf3 = CGAFusion(1024)
 
         self.avgpool = nn.AvgPool2d((7, 7))
         self.fc = nn.Linear(512 * 4, num_classes)
@@ -95,11 +99,15 @@ class LungNoduleClassifierResNet50(nn.Module):
         
         out = self.layer1(out)
         out = self.attention1(out.permute(2, 3, 1, 0)).permute(3, 2, 0, 1)
+        out = self.cagf1(out, out)
         out = self.layer2(out)
         out = self.attention2(out.permute(2, 3, 1, 0)).permute(3, 2, 0, 1)
+        out = self.cagf2(out, out)
         out = self.layer3(out)
         out = self.attention3(out.permute(2, 3, 1, 0)).permute(3, 2, 0, 1)
+        out = self.cagf3(out, out)
         out = self.layer4(out)
+    
         out = self.attention4(out.permute(2, 3, 1, 0)).permute(3, 2, 0, 1)
         
         out = F.avg_pool2d(out,7)

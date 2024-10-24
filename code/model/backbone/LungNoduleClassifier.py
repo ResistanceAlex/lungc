@@ -9,22 +9,25 @@ sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 from torch.nn import functional as F
 
-from attention.CoordAttn_simam import CoordAtt
 from attention.CoordAttn_simam import Simam
 from attention.MocAttn import MoCAttention
+from attention.CGAFusion import CGAFusion
+from conv.WTConv2d import WTConv2d
+
 
 
 # 残差块
 class ResidualBlock(nn.Module):
     # 实现子module: Residual Block
-    def __init__(self, inchannel, outchannel, stride=1, shortcut=None):
+    def __init__(self, in_channels, out_channels, stride=1, shortcut=None):
         super(ResidualBlock,self).__init__()
         self.blockconv = nn.Sequential(
-            nn.Conv2d(inchannel, outchannel, 3, stride, 1, bias=False),
-            nn.BatchNorm2d(outchannel),
+            nn.Conv2d(in_channels, out_channels, 3, stride, 1, bias=False),
+            nn.BatchNorm2d(out_channels),
             nn.ReLU(inplace = True),
-            nn.Conv2d(outchannel, outchannel, 3, 1, 1, bias=False),
-            nn.BatchNorm2d(outchannel)
+            nn.Conv2d(out_channels, out_channels, 3, 1, 1, bias=False),
+            WTConv2d(out_channels, out_channels, kernel_size=3, stride=1),  # 在3x3 Conv2d之后添加小波卷积
+            nn.BatchNorm2d(out_channels)
         )
         self.shortcut = shortcut
         self.simam = Simam()
@@ -49,6 +52,7 @@ class LungNoduleClassifier(nn.Module):
             nn.Conv2d(3,64,7,2,3,bias=False),
             nn.BatchNorm2d(64),
             nn.ReLU(inplace=True),
+            WTConv2d(64, 64, kernel_size=7, stride=1),  # 在Conv2d之后添加小波卷积
             nn.MaxPool2d(3,2,1)
         )
         # 重复的layer，分别有3,4,6,3个residual block
@@ -59,43 +63,50 @@ class LungNoduleClassifier(nn.Module):
         
         self.fc = nn.Identity()
         
-        # self.attention = CoordAtt(inp=512,oup=512)
-        
-        self.attention = MoCAttention(512,256)
+        self.attention1 = MoCAttention(55)
+        self.attention2 = MoCAttention(28)
+        self.attention3 = MoCAttention(14)
+        self.attention4 = MoCAttention(7)
+        self.cagf1 = CGAFusion(128)
+        self.cagf2 = CGAFusion(256)
+        self.cagf3 = CGAFusion(512)
         
         self.dropout = nn.Dropout(dropout)
         
         # 分类用的全连接
         self.fc = nn.Linear(512, num_classes)
         
-    def _make_layer(self,inchannel,outchannel,block_num,stride=1):
+    def _make_layer(self, in_channels, out_channels, block_num, stride=1):
         # 构造layer，包含多个residual block
         shortcut = nn.Sequential(
-            nn.Conv2d(inchannel,outchannel,1,stride,bias=False),
-            nn.BatchNorm2d(outchannel)
+            nn.Conv2d(in_channels, out_channels, 1, stride, bias=False),
+            nn.BatchNorm2d(out_channels)
         )
         
         layers=[]
-        layers.append(ResidualBlock(inchannel,outchannel,stride,shortcut))
+        layers.append(ResidualBlock(in_channels, out_channels, stride, shortcut))
         
         for i in range(1,block_num):
-            layers.append(ResidualBlock(outchannel,outchannel))
+            layers.append(ResidualBlock(out_channels, out_channels))
         return nn.Sequential(*layers)
     
     def forward(self, x):
         out = self.pre(x)
         
         out = self.layer1(out)
+        out = self.attention1(out.permute(2, 3, 1, 0)).permute(3, 2, 0, 1)
+        out = self.cagf1(out, out)
         out = self.layer2(out)
-        
-        # # 在这里应用注意力机制
-        # out = self.attention(out)
-        
+        out = self.attention2(out.permute(2, 3, 1, 0)).permute(3, 2, 0, 1)
+        out = self.cagf2(out, out)    
         out = self.layer3(out)
+        out = self.attention3(out.permute(2, 3, 1, 0)).permute(3, 2, 0, 1)
+        out = self.cagf3(out, out)
         out = self.layer4(out)
+        out = self.attention4(out.permute(2, 3, 1, 0)).permute(3, 2, 0, 1)
+        out = self.cagf3(out, out)
         
-        # 在这里应用注意力机制
-        out = self.attention(out)
+
         
         out = F.avg_pool2d(out,7)
         
@@ -110,6 +121,10 @@ class LungNoduleClassifier(nn.Module):
         # out = self.dropout2(out)
 
         out = self.fc(out)
+        
+        # 添加 softmax 层
+        out = F.softmax(out, dim=1)
+
         
         return out
 

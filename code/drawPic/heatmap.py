@@ -11,10 +11,6 @@ import sys
 
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
-from code.model.backbone.LungNoduleClassifier import LungNoduleClassifier
-
-from code.model.backbone.LungNoduleClassifier_b import LungNoduleClassifierResNet50
-
 def read_labels(label_path):
     labels = []
     boxes = []
@@ -46,7 +42,6 @@ def crop_and_resize(image, bbox, o_image_path):
 
 def generate_heatmap(model, image, target_class):
     model.eval()
-    device = next(model.parameters()).device
     image = image.to(device).unsqueeze(0)
 
     global gradients, activation
@@ -97,7 +92,7 @@ def overlay_heatmap(heatmap, original_image):
     overlayed_image = np.array(original_image_pil) * 0.5 + heatmap_color * 0.5
     return overlayed_image.astype(np.uint8)
 
-def main(image_id, result_path):
+def main(image_id, result_path, model):
     pth_path = fr'{result_path}/pth/best_train_model.pth'
     images_bg = fr'dataset/images/train/{image_id}.jpg'
     labels_path = fr'dataset/labels/train/{image_id}.txt'
@@ -117,10 +112,7 @@ def main(image_id, result_path):
 
     transform = transforms.Compose([transforms.ToTensor()])
     cropped_image_tensor = transform(cropped_resized_image).unsqueeze(0)
-
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = LungNoduleClassifier().to(device)  # 使用你的模型
-    model.load_state_dict(torch.load(pth_path))
+    model.load_state_dict(torch.load(pth_path), strict=False)
 
     heatmap = generate_heatmap(model, cropped_image_tensor.squeeze(), target_class)
     overlayed_image = overlay_heatmap(heatmap, cropped_image_tensor.squeeze())
@@ -128,7 +120,31 @@ def main(image_id, result_path):
     cv2.imwrite(output_image_path, overlayed_image)
     print(f"Overlayed heatmap saved to: {output_image_path}")
 
-if __name__ == "__main__":
+def draw_heatmap(result_id, model):
+    # 定义结果文件夹和CSV文件路径
     image_id = '460'
-    result_path = 'result/result_ores' 
-    main(image_id, result_path)
+    result_dir = result_id  # 结果文件夹路径
+    main(image_id, result_dir, model)
+    print("heatmap saved.")
+    
+
+from model.backbone.LungNoduleClassifier import LungNoduleClassifier
+from model.backbone.LungNoduleClassifier_b import LungNoduleClassifierResNet50
+from model.backbone.ViTB import VisionTransformer
+from model.backbone.Densenet import DenseNet
+from dataUtil.LungNoduleDataset import LungNoduleDataset
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  # 检查是否有 GPU 可用
+
+if __name__ == "__main__":
+    # model = VisionTransformer(img_size=224,
+    #                           patch_size=16,
+    #                           embed_dim=16,
+    #                           depth=16,
+    #                           num_heads=8,
+    #                           representation_size=None,
+    #                           num_classes=5).to(device)
+    # model = LungNoduleClassifier().to(device)
+    # model = LungNoduleClassifierResNet50().to(device)
+    model = DenseNet(blocks=[6, 12, 64, 48]).to(device)
+    result_id = 'result/result_1'
+    draw_heatmap(result_id, model)
